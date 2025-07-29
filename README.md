@@ -239,11 +239,11 @@ graph TB
    ```json
    {
      "ConnectionStrings": {
-       "MongoDB": "mongodb+srv://username:password@cluster.mongodb.net/"
+       "MongoDB": "mongodb+srv://<username>:<password>@<cluster>.mongodb.net/<database>"
      },
      "MongoDB": {
        "DatabaseName": "TaskManagementDB",
-       "ConnectionString": "mongodb+srv://username:password@cluster.mongodb.net/"
+       "ConnectionString": "mongodb+srv://<username>:<password>@<cluster>.mongodb.net/<database>"
      }
    }
    ```
@@ -347,6 +347,8 @@ dotnet publish -c Release
 
 ### Environment Variables
 
+⚠️ **SECURITY WARNING**: Never commit real credentials to version control!
+
 Create `appsettings.Development.json` for local development:
 
 ```json
@@ -364,6 +366,13 @@ Create `appsettings.Development.json` for local development:
     }
   }
 }
+```
+
+**For Production**: Use environment variables or secure configuration management:
+```bash
+# Set environment variables
+export ConnectionStrings__MongoDB="your-production-mongodb-connection"
+export JwtSettings__SecretKey="your-production-secret-key"
 ```
 
 ## 📋 API Endpoints
@@ -474,7 +483,8 @@ ENTRYPOINT ["dotnet", "TaskManagement.API.dll"]
 - **RefreshTokenExpiryInDays**: Refresh token lifetime (default: 7 days)
 
 ### MongoDB Configuration
-- **ConnectionString**: MongoDB connection URL
+- **ConnectionString**: MongoDB connection URL (use environment variables for production)
+- **Security Note**: Never commit real credentials to version control
 - **DatabaseName**: Database name (default: TaskManagementDB)
 
 ### SignalR Configuration
