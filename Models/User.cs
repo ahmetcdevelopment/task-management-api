@@ -4,6 +4,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace TaskManagement.API.Models;
 
+[BsonIgnoreExtraElements]
 public class User
 {
     [BsonId]
@@ -26,6 +27,7 @@ public class User
     public string PasswordHash { get; set; } = string.Empty;
 
     [Required]
+    [BsonRepresentation(BsonType.Int32)]
     public UserRole Role { get; set; } = UserRole.Developer;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

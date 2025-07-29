@@ -16,15 +16,18 @@ public class WorkItemsController : ControllerBase
     private readonly IWorkItemService _workItemService;
     private readonly IProjectService _projectService;
     private readonly IUserRepository _userRepository;
+    private readonly INotificationService _notificationService;
 
     public WorkItemsController(
         IWorkItemService workItemService,
         IProjectService projectService,
-        IUserRepository userRepository)
+        IUserRepository userRepository,
+        INotificationService notificationService)
     {
         _workItemService = workItemService;
         _projectService = projectService;
         _userRepository = userRepository;
+        _notificationService = notificationService;
     }
 
     [HttpGet]
@@ -183,6 +186,12 @@ public class WorkItemsController : ControllerBase
             var userId = GetCurrentUserId();
             var workItem = await _workItemService.CreateWorkItemAsync(createWorkItemDto, userId);
 
+            // Send notification if task is assigned during creation
+            if (!string.IsNullOrEmpty(workItem.AssignedToId) && workItem.AssignedToId != userId)
+            {
+                await _notificationService.SendWorkItemAssignedNotificationAsync(workItem.Id, workItem.AssignedToId, userId);
+            }
+
             return CreatedAtAction(nameof(GetWorkItem), new { id = workItem.Id }, await MapToResponseDto(workItem));
         }
         catch (ArgumentException ex)
@@ -210,10 +219,20 @@ public class WorkItemsController : ControllerBase
                 return Forbid();
 
             var userId = GetCurrentUserId();
+            var oldWorkItem = existingWorkItem; // Store old state for comparison
             var workItem = await _workItemService.UpdateWorkItemAsync(id, updateWorkItemDto, userId);
 
             if (workItem == null)
                 return NotFound(new { message = "Work item bulunamadı" });
+
+            // Send notification for work item update
+            await _notificationService.SendWorkItemUpdatedNotificationAsync(workItem.Id, userId);
+
+            // Send notification if assignee changed
+            if (oldWorkItem.AssignedToId != workItem.AssignedToId && !string.IsNullOrEmpty(workItem.AssignedToId))
+            {
+                await _notificationService.SendWorkItemAssignedNotificationAsync(workItem.Id, workItem.AssignedToId, userId);
+            }
 
             return Ok(await MapToResponseDto(workItem));
         }
@@ -247,11 +266,64 @@ public class WorkItemsController : ControllerBase
             if (!success)
                 return BadRequest(new { message = "Work item durumu güncellenemedi" });
 
+            // Send notification for status update
+            await _notificationService.SendWorkItemUpdatedNotificationAsync(id, userId);
+
+            // Send completion notification if status is Done
+            if (statusDto.Status == WorkItemStatus.Done)
+            {
+                await _notificationService.SendWorkItemCompletedNotificationAsync(id, userId);
+            }
+
             return Ok(new { message = "Work item durumu başarıyla güncellendi" });
         }
         catch (Exception ex)
         {
             return StatusCode(500, new { message = "Work item durumu güncellenirken hata oluştu", error = ex.Message });
+        }
+    }
+
+    [HttpGet("{id}/logs")]
+    public async Task<ActionResult<IEnumerable<WorkItemLogResponseDto>>> GetWorkItemLogs(string id)
+    {
+        try
+        {
+            var workItem = await _workItemService.GetWorkItemByIdAsync(id);
+            if (workItem == null)
+                return NotFound(new { message = "Work item bulunamadı" });
+
+            // Check if user has access to this work item's project
+            var hasAccess = await CheckProjectAccess(workItem.ProjectId);
+            if (!hasAccess)
+                return Forbid();
+
+            var logs = await _workItemService.GetWorkItemLogsAsync(id);
+            var logDtos = new List<WorkItemLogResponseDto>();
+
+            foreach (var log in logs.OrderByDescending(l => l.CreatedAt))
+            {
+                var user = await _userRepository.GetByIdAsync(log.UserId);
+                logDtos.Add(new WorkItemLogResponseDto
+                {
+                    Id = log.Id,
+                    WorkItemId = log.WorkItemId,
+                    UserId = log.UserId,
+                    UserName = user != null ? $"{user.FirstName} {user.LastName}" : "Bilinmeyen Kullanıcı",
+                    Action = log.Action,
+                    Description = log.Description,
+                    OldValue = log.OldValue,
+                    NewValue = log.NewValue,
+                    FieldName = log.FieldName,
+                    CreatedAt = log.CreatedAt,
+                    Metadata = log.Metadata
+                });
+            }
+
+            return Ok(logDtos);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = "Work item logları alınırken hata oluştu", error = ex.Message });
         }
     }
 
@@ -274,6 +346,12 @@ public class WorkItemsController : ControllerBase
 
             if (!success)
                 return BadRequest(new { message = "Work item atanamadı" });
+
+            // Send assignment notification
+            if (assignDto.AssigneeId != userId)
+            {
+                await _notificationService.SendWorkItemAssignedNotificationAsync(id, assignDto.AssigneeId, userId);
+            }
 
             return Ok(new { message = "Work item başarıyla atandı" });
         }
@@ -311,28 +389,7 @@ public class WorkItemsController : ControllerBase
         }
     }
 
-    [HttpGet("{id}/logs")]
-    public async Task<ActionResult<IEnumerable<WorkItemLog>>> GetWorkItemLogs(string id)
-    {
-        try
-        {
-            var workItem = await _workItemService.GetWorkItemByIdAsync(id);
-            if (workItem == null)
-                return NotFound(new { message = "Work item bulunamadı" });
 
-            // Check if user has access to this work item's project
-            var hasAccess = await CheckProjectAccess(workItem.ProjectId);
-            if (!hasAccess)
-                return Forbid();
-
-            var logs = await _workItemService.GetWorkItemLogsAsync(id);
-            return Ok(logs);
-        }
-        catch (Exception ex)
-        {
-            return StatusCode(500, new { message = "Work item logları alınırken hata oluştu", error = ex.Message });
-        }
-    }
 
     [HttpDelete("{id}")]
     [Authorize(Roles = "Admin,Manager")]

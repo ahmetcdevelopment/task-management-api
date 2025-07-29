@@ -239,9 +239,9 @@ public class AuthController : ControllerBase
         }
     }
 
-    // Admin endpoints
+    // Users endpoints - accessible by Admin, Manager, Developer for task assignment
     [HttpGet("users")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = "Admin,Manager,Developer")]
     public async Task<ActionResult<IEnumerable<UserResponseDto>>> GetUsers([FromQuery] UserFilterDto filter)
     {
         try
